@@ -280,17 +280,18 @@ impl log::Log for RedoxLogger {
     }
     fn log(&self, record: &Record) {
         for output in &self.outputs {
-            let mut endpoint_guard = match output.endpoint.lock() {
-                Ok(e) => e,
-                // poison error
-                _ => continue,
-            };
             if record.metadata().level() <= output.filter {
-                let _ = Self::write_record(output.ansi, record, self.process_name.as_deref(), &mut *endpoint_guard);
-            }
+                let mut endpoint_guard = match output.endpoint.lock() {
+                    Ok(e) => e,
+                    // poison error
+                    _ => continue,
+                };
 
-            if output.flush_on_newline {
-                let _ = endpoint_guard.flush();
+                let _ = Self::write_record(output.ansi, record, self.process_name.as_deref(), &mut *endpoint_guard);
+
+                if output.flush_on_newline {
+                    let _ = endpoint_guard.flush();
+                }
             }
         }
     }
