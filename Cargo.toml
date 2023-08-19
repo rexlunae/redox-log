@@ -1,8 +1,8 @@
 [package]
 name = "redox-log"
-version = "0.1.1"
-authors = ["4lDO2 <4lDO2@protonmail.com>"]
-edition = "2018"
+version = "0.1.2"
+authors = ["4lDO2 <4lDO2@protonmail.com>", "Mark Tomlin <Dygear@gmail.com>"]
+edition = "2021"
 description = "An extensible logging framework mainly for use by Redox OS"
 documentation = "https://docs.rs/redox-log"
 readme = "README.md"
@@ -19,4 +19,4 @@ exclude = ["target"]
 chrono = "0.4"
 log = "0.4"
 smallvec = "1"
-termion = "1.5"
+termion = "2.0"

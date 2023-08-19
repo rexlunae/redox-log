@@ -1,17 +1,16 @@
-use std::io::prelude::*;
-use std::sync::Mutex;
-use std::{io, fmt};
 use std::ffi::OsStr;
 use std::fs::{self, File};
+use std::io::prelude::*;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::{fmt, io};
 
 #[cfg(any(target_os = "redox", rustdoc))]
-use std::{
-    io::BufWriter,
-};
+use std::io::BufWriter;
 
-use smallvec::SmallVec;
 use log::{Metadata, Record};
+use smallvec::SmallVec;
+use termion::color;
 
 /// An output that will be logged to. The two major outputs for most Redox system programs are
 /// usually the log file, and the global stdout.
@@ -47,7 +46,11 @@ pub struct OutputBuilder {
     ansi: Option<bool>,
 }
 impl OutputBuilder {
-    pub fn in_redox_logging_scheme<A, B, C>(category: A, subcategory: B, logfile: C) -> Result<Self, io::Error>
+    pub fn in_redox_logging_scheme<A, B, C>(
+        category: A,
+        subcategory: B,
+        logfile: C,
+    ) -> Result<Self, io::Error>
     where
         A: AsRef<OsStr>,
         B: AsRef<OsStr>,
@@ -81,7 +84,7 @@ impl OutputBuilder {
 
     pub fn with_endpoint<T>(endpoint: T) -> Self
     where
-        T: Write + Send + 'static
+        T: Write + Send + 'static,
     {
         Self::with_dyn_endpoint(Box::new(endpoint))
     }
@@ -131,7 +134,13 @@ impl RedoxLogger {
     pub fn new() -> Self {
         Self::default()
     }
-    fn adjust_output_level(max_filter: Option<log::LevelFilter>, min_filter: Option<log::LevelFilter>, max_in_use: &mut Option<log::LevelFilter>, min_in_use: &mut Option<log::LevelFilter>, output: &mut Output) {
+    fn adjust_output_level(
+        max_filter: Option<log::LevelFilter>,
+        min_filter: Option<log::LevelFilter>,
+        max_in_use: &mut Option<log::LevelFilter>,
+        min_in_use: &mut Option<log::LevelFilter>,
+        output: &mut Output,
+    ) {
         if let Some(max) = max_filter {
             output.filter = std::cmp::max(output.filter, max);
         }
@@ -148,21 +157,39 @@ impl RedoxLogger {
         }
     }
     pub fn with_output(mut self, mut output: Output) -> Self {
-        Self::adjust_output_level(self.max_filter, self.min_filter, &mut self.max_level_in_use, &mut self.min_level_in_use, &mut output);
+        Self::adjust_output_level(
+            self.max_filter,
+            self.min_filter,
+            &mut self.max_level_in_use,
+            &mut self.min_level_in_use,
+            &mut output,
+        );
         self.outputs.push(output);
         self
     }
     pub fn with_min_level_override(mut self, min: log::LevelFilter) -> Self {
         self.min_filter = Some(min);
         for output in &mut self.outputs {
-            Self::adjust_output_level(self.max_filter, self.min_filter, &mut self.max_level_in_use, &mut self.min_level_in_use, output);
+            Self::adjust_output_level(
+                self.max_filter,
+                self.min_filter,
+                &mut self.max_level_in_use,
+                &mut self.min_level_in_use,
+                output,
+            );
         }
         self
     }
     pub fn with_max_level_override(mut self, max: log::LevelFilter) -> Self {
         self.max_filter = Some(max);
         for output in &mut self.outputs {
-            Self::adjust_output_level(self.max_filter, self.min_filter, &mut self.max_level_in_use, &mut self.min_level_in_use, output);
+            Self::adjust_output_level(
+                self.max_filter,
+                self.min_filter,
+                &mut self.max_level_in_use,
+                &mut self.min_level_in_use,
+                output,
+            );
         }
         self
     }
@@ -180,95 +207,83 @@ impl RedoxLogger {
         }
         Ok(leak)
     }
-    fn write_record<W: Write>(ansi: bool, record: &Record, process_name: Option<&str>, writer: &mut W) -> io::Result<()> {
-        use termion::{color, style};
+    fn write_record<W: Write>(
+        ansi: bool,
+        record: &Record,
+        process_name: Option<&str>,
+        writer: &mut W,
+    ) -> io::Result<()> {
         use log::Level;
-
+        use termion::style;
 
         // TODO: Log offloading to another thread or thread pool, maybe?
-
+        // Time & Time Zone Formatting
         let now_local = chrono::Local::now();
+        let time = now_local.format("%Y-%m-%dT%H-%M-%S%.3f");
+        let mut zone = format!("{}", now_local.format("%:z"));
+        if zone.as_str() == "+00:00" {
+            zone = "Z".to_string();
+        }
 
-        // TODO: Use colors in timezone, when colors are enabled, to e.g. gray out the timezone and
-        // make the actual date more readable.
-        let time = now_local.format("%Y-%m-%dT%H-%M-%S.%.3f+%:z");
         let target = record.module_path().unwrap_or(record.target());
         let level = record.level();
         let message = record.args();
-
-        let trace_col = color::Fg(color::LightBlack);
-        let debug_col = color::Fg(color::White);
-        let info_col = color::Fg(color::LightBlue);
-        let warn_col = color::Fg(color::LightYellow);
-        let err_col = color::Fg(color::LightRed);
-
-        let level_color: &dyn fmt::Display = match level {
-            Level::Trace => &trace_col,
-            Level::Debug => &debug_col,
-            Level::Info => &info_col,
-            Level::Warn => &warn_col,
-            Level::Error => &err_col,
-        };
-
-        let dim_white = color::Fg(color::White);
-        let bright_white = color::Fg(color::LightWhite);
-        let regular_style = "";
-        let bold_style = style::Bold;
-
-        let [message_color, message_style]: [&dyn fmt::Display; 2] = match level {
-            Level::Trace | Level::Debug => [&dim_white, &regular_style],
-            Level::Info | Level::Warn | Level::Error => [&bright_white, &bold_style],
-        };
-        let target_color = color::Fg(color::White);
-
-        let time_color = color::Fg(color::LightBlack);
 
         let reset = color::Fg(color::Reset);
 
         let show_lines = true;
         let line_number = if show_lines { record.line() } else { None };
 
-        struct LineFmt(Option<u32>, bool);
-        impl fmt::Display for LineFmt {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                if let Some(line) = self.0 {
-                    if self.1 {
-                        // ansi escape codes
-                        let col = color::Fg(color::LightBlack);
-                        let reset = color::Fg(color::Reset);
-                        write!(f, "{col:}:{line:}{reset:}", col=col, line=line, reset=reset)
-                    } else {
-                        // no ansi escape codes
-                        write!(f, ":{}", line)
-                    }
-                } else {
-                    write!(f, "")
-                }
-            }
-        }
-
         let process_name = process_name.unwrap_or("");
+        let line = &LineFmt(line_number, false);
 
         if ansi {
+            let time_color = color::Fg(color::LightWhite);
+            let zone_color = color::Fg(color::White);
+
+            let trace_col = color::Fg(color::LightBlack);
+            let debug_col = color::Fg(color::White);
+            let info_col = color::Fg(color::LightBlue);
+            let warn_col = color::Fg(color::LightYellow);
+            let err_col = color::Fg(color::LightRed);
+
+            let level_color: &dyn fmt::Display = match level {
+                Level::Trace => &trace_col,
+                Level::Debug => &debug_col,
+                Level::Info => &info_col,
+                Level::Warn => &warn_col,
+                Level::Error => &err_col,
+            };
+
+            let dim_white = color::Fg(color::White);
+            let bright_white = color::Fg(color::LightWhite);
+            let regular_style = "";
+            let bold_style = style::Bold;
+
+            let [message_color, message_style]: [&dyn fmt::Display; 2] = match level {
+                Level::Trace | Level::Debug => [&dim_white, &regular_style],
+                Level::Info | Level::Warn | Level::Error => [&bright_white, &bold_style],
+            };
+            let target_color = color::Fg(color::White);
+
+            let i = style::Italic;
+            let b = style::Bold;
+            let r = reset;
+            let rs = style::Reset;
+
             writeln!(
                 writer,
-                "{time:} [{target:}{line:} {level:}] {msg:}",
-
-                time=format_args!("{m:}{col:}{msg:}{rs:}{r:}", m=style::Italic, col=time_color, msg=time, r=reset, rs=style::Reset),
-                line=&LineFmt(line_number, true),
-                level=format_args!("{m:}{col:}{msg:}{rs:}{r:}", m=style::Bold, col=level_color, msg=level, r=reset, rs=style::Reset),
-                target=format_args!("{col:}{process_name:}@{target:}{r:}", col=target_color, process_name=process_name, target=target, r=reset),
-                msg=format_args!("{m:}{col:}{msg:}{rs:}{r:}", m=message_style, col=message_color, msg=message, r=reset, rs=style::Reset),
+                "{time}{zone} [{target}{line} {level}] {msg}",
+                time = format_args!("{i}{time_color}{time}{rs}{r}"),
+                zone = format_args!("{i}{zone_color}{zone}{rs}{r}"),
+                level = format_args!("{b}{level_color}{level}{rs}{r}"),
+                target = format_args!("{target_color}{process_name}@{target}{r}"),
+                msg = format_args!("{message_style}{message_color}{message}{rs}{r}"),
             )
         } else {
             writeln!(
                 writer,
-                "{time:} [{target:}{line:} {level:}] {msg:}",
-                time=time,
-                level=level,
-                target=format_args!("{process_name}@{target}", process_name=process_name, target=target),
-                line=&LineFmt(line_number, false),
-                msg=message,
+                "{time}{zone} [{process_name}@{target}{line} {level}] {message}",
             )
         }
     }
@@ -276,7 +291,13 @@ impl RedoxLogger {
 
 impl log::Log for RedoxLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        self.max_level_in_use.map(|min| metadata.level() >= min).unwrap_or(false) && self.min_level_in_use.map(|max| metadata.level() <= max).unwrap_or(false)
+        self.max_level_in_use
+            .map(|min| metadata.level() >= min)
+            .unwrap_or(false)
+            && self
+                .min_level_in_use
+                .map(|max| metadata.level() <= max)
+                .unwrap_or(false)
     }
     fn log(&self, record: &Record) {
         for output in &self.outputs {
@@ -287,7 +308,12 @@ impl log::Log for RedoxLogger {
                     _ => continue,
                 };
 
-                let _ = Self::write_record(output.ansi, record, self.process_name.as_deref(), &mut *endpoint_guard);
+                let _ = Self::write_record(
+                    output.ansi,
+                    record,
+                    self.process_name.as_deref(),
+                    &mut *endpoint_guard,
+                );
 
                 if output.flush_on_newline {
                     let _ = endpoint_guard.flush();
@@ -298,9 +324,30 @@ impl log::Log for RedoxLogger {
     fn flush(&self) {
         for output in &self.outputs {
             match output.endpoint.lock() {
-                Ok(ref mut e) => { let _ = e.flush(); }
+                Ok(ref mut e) => {
+                    let _ = e.flush();
+                }
                 _ => continue,
             }
+        }
+    }
+}
+
+struct LineFmt(Option<u32>, bool);
+impl fmt::Display for LineFmt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(line) = self.0 {
+            if self.1 {
+                // ansi escape codes
+                let color = color::Fg(color::LightBlack);
+                let reset = color::Fg(color::Reset);
+                write!(f, "{color}:{line}{reset}")
+            } else {
+                // no ansi escape codes
+                write!(f, ":{line}")
+            }
+        } else {
+            write!(f, "")
         }
     }
 }
