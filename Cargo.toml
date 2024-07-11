@@ -19,4 +19,4 @@ exclude = ["target"]
 chrono = "0.4"
 log = "0.4"
 smallvec = "1"
-termion = "2.0"
+termion = "4"
