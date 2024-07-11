@@ -1,12 +1,9 @@
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::prelude::*;
+use std::io::{prelude::*, BufWriter};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::{fmt, io};
-
-#[cfg(any(target_os = "redox", rustdoc))]
-use std::io::BufWriter;
 
 use log::{Metadata, Record};
 use smallvec::SmallVec;
@@ -72,7 +69,7 @@ impl OutputBuilder {
             }
         }
 
-        Ok(Self::with_endpoint(File::create(path)?))
+        Ok(Self::with_endpoint(BufWriter::new(File::create(path)?)))
     }
 
     pub fn stdout() -> Self {
