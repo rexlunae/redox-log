@@ -57,7 +57,7 @@ impl OutputBuilder {
             return Ok(Self::with_endpoint(Vec::new()));
         }
 
-        let mut path = PathBuf::from("logging:");
+        let mut path = PathBuf::from("/scheme/logging/");
         path.push(category.as_ref());
         path.push(subcategory.as_ref());
         path.push(logfile.as_ref());
