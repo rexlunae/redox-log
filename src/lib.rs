@@ -2,12 +2,14 @@ use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{prelude::*, BufWriter};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::{fmt, io};
 
 use log::{Metadata, Record};
 use smallvec::SmallVec;
 use termion::color;
+
+static LOCAL_OFFSET: OnceLock<chrono::FixedOffset> = OnceLock::new();
 
 /// An output that will be logged to. The two major outputs for most Redox system programs are
 /// usually the log file, and the global stdout.
@@ -131,6 +133,9 @@ impl RedoxLogger {
     pub fn new() -> Self {
         Self::default()
     }
+    pub fn init_timezone() {
+        LOCAL_OFFSET.get_or_init(|| *chrono::Local::now().offset());
+    }
     fn adjust_output_level(
         max_filter: Option<log::LevelFilter>,
         min_filter: Option<log::LevelFilter>,
@@ -215,7 +220,8 @@ impl RedoxLogger {
 
         // TODO: Log offloading to another thread or thread pool, maybe?
         // Time & Time Zone Formatting
-        let now_local = chrono::Local::now();
+        let offset = LOCAL_OFFSET.get_or_init(|| *chrono::Local::now().offset());
+        let now_local = chrono::Utc::now().with_timezone(offset);
         let time = now_local.format("%Y-%m-%dT%H-%M-%S%.3f");
         let mut zone = format!("{}", now_local.format("%:z"));
         if zone.as_str() == "+00:00" {
